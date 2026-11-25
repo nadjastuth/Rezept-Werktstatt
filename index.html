@@ -150,6 +150,7 @@
   .drop .hint { margin: 0; }
   .ocr-status { font-size: .88rem; color: var(--sage); font-weight: 600; }
   .btn:disabled { opacity: .5; cursor: wait; }
+  #pastePanel > label:first-of-type { margin-top: 14px; }
 
   /* Mobil: Navigation unten */
   @media (max-width: 700px) {
@@ -197,15 +198,32 @@
     <div class="panel" id="pastePanel" hidden>
       <h3>Rezept aus Text einfügen</h3>
       <p class="hint">Füge die kopierte Beschreibung ein (z. B. von TikTok oder Instagram) oder lies sie aus Screenshots und Fotos aus. Zutaten werden an Zeilen mit „-“ oder unter „Zutaten:“ erkannt, die Schritte unter „Zubereitung:“. Danach prüfst du alles und speicherst.</p>
+      <label for="srcLang">Sprache des Rezepts</label>
+      <select id="srcLang" style="max-width:260px">
+        <option value="deu">Deutsch</option>
+        <option value="eng">Englisch</option>
+        <option value="fra">Französisch</option>
+        <option value="ita">Italienisch</option>
+        <option value="spa">Spanisch</option>
+        <option value="tur">Türkisch</option>
+        <option value="ara">Arabisch</option>
+        <option value="rus">Russisch</option>
+        <option value="ukr">Ukrainisch</option>
+        <option value="ron">Rumänisch</option>
+        <option value="ell">Griechisch</option>
+      </select>
+      <p class="hint" id="trHint" hidden>Zum Übersetzen wird der Text an den kostenlosen Dienst MyMemory gesendet. Es gibt ein Tageslimit, und die Qualität ist nur ausreichend. Bitte das Ergebnis prüfen.</p>
       <div class="drop" id="dropZone">
         <button class="btn ghost" id="pickImg" type="button">📷 Screenshots / Fotos hinzufügen</button>
         <input type="file" id="imgInput" accept="image/*" multiple hidden>
         <span class="hint">Mehrere Bilder sind möglich. Du kannst sie auch hierher ziehen oder mit Strg+V einfügen. Der erkannte Text erscheint unten und lässt sich korrigieren.</span>
         <div class="ocr-status" id="ocrStatus" hidden></div>
       </div>
-      <textarea id="pasteText" placeholder="Rezept für 3 Portionen:&#10;- 500g Magerquark&#10;- 200g Pudding&#10;&#10;Zubereitung:&#10;1. Alles verrühren"></textarea>
+      <textarea id="pasteText" dir="auto" placeholder="Rezept für 3 Portionen:&#10;- 500g Magerquark&#10;- 200g Pudding&#10;&#10;Zubereitung:&#10;1. Alles verrühren"></textarea>
+      <div class="ocr-status" id="trStatus" hidden style="margin-top:8px"></div>
       <div class="actions">
         <button class="btn" id="parseBtn">Text übernehmen</button>
+        <button class="btn ghost" id="translateBtn" type="button" hidden>🌐 Ins Deutsche übersetzen</button>
         <button class="btn ghost" id="cancelPaste">Abbrechen</button>
       </div>
     </div>
@@ -349,14 +367,14 @@
   // Rezept aus Text erkennen
   function parseRecipeText(text) {
     const strip = (s) => s.replace(/[☀-➿⭐️]|[\uD83C-\uD83E][\uDC00-\uDFFF]/g, "").replace(/\s+/g, " ").trim();
-    const isIngHeader = /^(zutaten|rezept(\s+für\s+.*)?|topping|belag|für\s+.*portionen.*)\s*:?$/i;
-    const isStepHeader = /^(zubereitung|anleitung|schritte|so geht'?s|so geht es)\s*:?$/i;
+    const isIngHeader = /^(zutaten(\s+für\s+.*)?|ingredients|ingrédients|ingredienti|ingredientes|malzemeler|rezept(\s+für\s+.*)?|topping|belag|für\s+.*portionen.*)\s*:?$/i;
+    const isStepHeader = /^(zubereitung|anleitung|schritte|methode|so geht'?s|so geht es|instructions|directions|method|steps|préparation|preparazione|preparación|yapılışı|hazırlanışı)\s*:?$/i;
     let mode = "intro", name = "", serv = null;
     const ing = [], steps = [], notes = [];
     for (const raw of text.replace(/\r/g, "").split("\n")) {
       const line = strip(raw);
       if (!line) continue;
-      const sm = line.match(/(\d+)\s*Portion/i);
+      const sm = line.match(/(\d+)\s*(?:Portion|Person|servings|serves)/i) || line.match(/(?:portionen?|personen|servings?|serves)\s*:?\s*(\d+)/i);
       if (sm && serv === null) serv = parseInt(sm[1]);
       if (isStepHeader.test(line)) { mode = "steps"; continue; }
       if (mode !== "steps" && isIngHeader.test(line)) { mode = "ing"; continue; }
@@ -398,7 +416,11 @@
     $("#rCat").value = "Hauptgericht";
     $("#formTitle").textContent = "Neues Rezept";
   }
-  function closePanels() { resetForm(); $("#pasteText").value = ""; showPanel(null); }
+  function closePanels() {
+    resetForm(); $("#pasteText").value = "";
+    $("#ocrStatus").hidden = true; $("#trStatus").hidden = true;
+    showPanel(null);
+  }
 
   $("#openForm").addEventListener("click", () => { resetForm(); showPanel("#formPanel"); $("#rName").focus({ preventScroll: true }); });
   $("#openPaste").addEventListener("click", () => { showPanel("#pastePanel"); $("#pasteText").focus({ preventScroll: true }); });
@@ -475,12 +497,12 @@
     if (!files.length || ocrBusy) return;
     ocrBusy = true;
     const st = $("#ocrStatus"); st.hidden = false;
-    ["#pickImg", "#parseBtn"].forEach(s => $(s).disabled = true);
+    ["#pickImg", "#parseBtn", "#translateBtn"].forEach(s => $(s).disabled = true);
     let worker, cur = 0;
     try {
       st.textContent = "Texterkennung wird geladen …";
       await loadTesseract();
-      worker = await Tesseract.createWorker("deu", 1, {
+      worker = await Tesseract.createWorker($("#srcLang").value, 1, {
         logger: m => {
           if (m.status === "recognizing text") st.textContent = `Bild ${cur} von ${files.length}: ${Math.round(m.progress * 100)} %`;
           else if (cur === 0) st.textContent = "Texterkennung wird vorbereitet …";
@@ -496,13 +518,13 @@
       }
       const ta = $("#pasteText");
       ta.value = (ta.value.trim() ? ta.value.trim() + "\n\n" : "") + texts.filter(Boolean).join("\n\n");
-      st.textContent = `✓ Text aus ${files.length} Bild${files.length > 1 ? "ern" : ""} erkannt. Bitte kurz prüfen, dann „Text übernehmen“ wählen.`;
+      st.textContent = `✓ Text aus ${files.length} Bild${files.length > 1 ? "ern" : ""} erkannt. Bitte kurz prüfen, dann ${$("#srcLang").value === "deu" ? "„Text übernehmen“ wählen" : "auf „Ins Deutsche übersetzen“ tippen"}.`;
     } catch (e) {
       st.textContent = "Die Texterkennung konnte nicht gestartet werden. Sie braucht eine Internetverbindung. Du kannst den Text auch abtippen.";
     } finally {
       if (worker) { try { await worker.terminate(); } catch (e) {} }
       ocrBusy = false;
-      ["#pickImg", "#parseBtn"].forEach(s => $(s).disabled = false);
+      ["#pickImg", "#parseBtn", "#translateBtn"].forEach(s => $(s).disabled = false);
     }
   }
   $("#pickImg").addEventListener("click", () => $("#imgInput").click());
@@ -515,6 +537,81 @@
     const imgs = [...((e.clipboardData && e.clipboardData.files) || [])].filter(f => f.type.startsWith("image/"));
     if (imgs.length) { e.preventDefault(); ocrFiles(imgs); }
   });
+
+  // Übersetzen ins Deutsche (MyMemory, kostenlos, Internet nötig)
+  const ISO = { eng: "en", fra: "fr", ita: "it", spa: "es", tur: "tr", ara: "ar", rus: "ru", ukr: "uk", ron: "ro", ell: "el" };
+  const decodeHtml = (s) => { const t = document.createElement("textarea"); t.innerHTML = s; return t.value; };
+  const byteLen = (s) => new TextEncoder().encode(s).length;
+
+  function syncLang() {
+    const foreign = $("#srcLang").value !== "deu";
+    $("#translateBtn").hidden = !foreign;
+    $("#trHint").hidden = !foreign;
+  }
+  $("#srcLang").addEventListener("change", syncLang);
+
+  async function mmTranslate(text, from) {
+    const url = "https://api.mymemory.translated.net/get?q=" + encodeURIComponent(text) + "&langpair=" + from + "|de";
+    const r = await fetch(url);
+    if (!r.ok) throw new Error("http");
+    const j = await r.json();
+    if (Number(j.responseStatus) !== 200) throw new Error(/ALL AVAILABLE FREE TRANSLATIONS/i.test(j.responseDetails || "") ? "limit" : "api");
+    return decodeHtml((j.responseData && j.responseData.translatedText) || "");
+  }
+
+  function splitLong(line, max) {
+    const out = [];
+    while (line.length > max) {
+      let cut = line.lastIndexOf(" ", max);
+      if (cut < 40) cut = max;
+      out.push(line.slice(0, cut).trim());
+      line = line.slice(cut).trim();
+    }
+    out.push(line);
+    return out;
+  }
+
+  let trBusy = false;
+  async function translateText() {
+    const from = ISO[$("#srcLang").value];
+    const ta = $("#pasteText"), st = $("#trStatus");
+    if (!from) { toast("Wähle zuerst die Sprache des Rezepts."); return; }
+    if (!ta.value.trim() || trBusy) return;
+    trBusy = true; $("#translateBtn").disabled = true;
+    st.hidden = false; st.textContent = "Wird übersetzt …";
+    try {
+      const lines = ta.value.replace(/\r/g, "").split("\n");
+      const items = [];
+      lines.forEach((l, li) => { if (l.trim()) splitLong(l.trim(), 200).forEach((p, pi) => items.push({ li, pi, text: p })); });
+      const out = lines.map(() => []);
+      let i = 0, done = 0;
+      while (i < items.length) {
+        const chunk = []; let size = 0;
+        while (i < items.length && (!chunk.length || size + byteLen(items[i].text) + 1 <= 450)) {
+          size += byteLen(items[i].text) + 1; chunk.push(items[i++]);
+        }
+        let res = null;
+        try {
+          const parts = (await mmTranslate(chunk.map(c => c.text).join("\n"), from)).split("\n");
+          if (parts.length === chunk.length) res = parts;
+        } catch (e) { if (e.message === "limit") throw e; }
+        if (!res) { res = []; for (const c of chunk) res.push(await mmTranslate(c.text, from)); }
+        chunk.forEach((c, k) => { out[c.li][c.pi] = res[k]; });
+        done += chunk.length;
+        st.textContent = `Übersetze … ${Math.round(done / items.length * 100)} %`;
+      }
+      ta.value = lines.map((l, li) => l.trim() ? out[li].join(" ").trim() : "").join("\n");
+      $("#srcLang").value = "deu"; syncLang();
+      st.textContent = "✓ Übersetzt. Bitte kurz prüfen, dann „Text übernehmen“ wählen.";
+    } catch (e) {
+      st.textContent = e.message === "limit"
+        ? "Das kostenlose Tageslimit des Übersetzers ist erreicht. Versuche es morgen wieder oder schick mir den Text im Chat."
+        : "Die Übersetzung hat nicht geklappt. Sie braucht eine Internetverbindung.";
+    } finally {
+      trBusy = false; $("#translateBtn").disabled = false;
+    }
+  }
+  $("#translateBtn").addEventListener("click", translateText);
 
   // Rezepte anzeigen
   function renderCats() {
