@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rezeptplaner</title>
+<title>Rezept-Werkstatt</title>
 <style>
   :root {
     --bg: #f7f3ec; --surface: #ffffff; --ink: #2a2521; --muted: #85796e; --line: #ebe3d7;
@@ -172,7 +172,7 @@
   <div class="top-inner">
     <div class="brand">
       <div class="logo">🍽️</div>
-      <div><h1>Rezeptplaner</h1><p>Sammeln · Planen · Einkaufen</p></div>
+      <div><h1>Rezept-Werkstatt</h1><p>Sammeln · Planen · Einkaufen</p></div>
     </div>
     <nav>
       <button data-tab="recipes" class="active"><span class="ico">📖</span>Rezepte</button>
@@ -520,7 +520,10 @@
       ta.value = (ta.value.trim() ? ta.value.trim() + "\n\n" : "") + texts.filter(Boolean).join("\n\n");
       st.textContent = `✓ Text aus ${files.length} Bild${files.length > 1 ? "ern" : ""} erkannt. Bitte kurz prüfen, dann ${$("#srcLang").value === "deu" ? "„Text übernehmen“ wählen" : "auf „Ins Deutsche übersetzen“ tippen"}.`;
     } catch (e) {
-      st.textContent = "Die Texterkennung konnte nicht gestartet werden. Sie braucht eine Internetverbindung. Du kannst den Text auch abtippen.";
+      const msg = (e && e.message) ? e.message : String(e);
+      st.textContent = msg === "load"
+        ? "Das Texterkennungs-Programm konnte nicht geladen werden. Mögliche Ursachen: Werbeblocker, VPN, „Privat-Relay“ oder ein gesperrter Download (cdn.jsdelivr.net). Du kannst den Text auch abtippen."
+        : "Die Texterkennung hat nicht geklappt. Technischer Grund: " + msg.slice(0, 160);
     } finally {
       if (worker) { try { await worker.terminate(); } catch (e) {} }
       ocrBusy = false;
